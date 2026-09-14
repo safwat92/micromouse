@@ -1,0 +1,16 @@
+enum RobotState
+{
+    STATE_MOVE_FORWARD,
+    STATE_CHECK_CELL,
+    STATE_TURN_LEFT,
+    STATE_TURN_RIGHT,
+    STATE_TURN_180,
+    STATE_STOP
+};
+
+enum RobotMode
+{
+    EXPLORE_MAZE_FORWARD,
+    EXPLORE_MAZE_BACKWARD,
+    FAST_RUN,
+};

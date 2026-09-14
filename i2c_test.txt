@@ -1,0 +1,37 @@
+// ############# I2C TEST ###############
+// #include <Wire.h>
+// #include <Arduino.h>
+
+// #define SDA_PIN 21
+// #define SCL_PIN 22
+// #define SHT_PIN 13 // Pin الخاص بالحساس الأول
+
+// void setup() {
+//   Serial.begin(115200);
+//   Wire.begin(SDA_PIN, SCL_PIN, 100000);
+
+//   pinMode(SHT_PIN, OUTPUT);
+//   digitalWrite(SHT_PIN, HIGH); // تشغيل الحساس الأول فقط
+//   delay(100);
+
+//   Serial.println("\nScanning I2C bus...");
+//   byte error, address;
+//   int nDevices = 0;
+
+//   for(address = 1; address < 127; address++ ) {
+//     Wire.beginTransmission(address);
+//     error = Wire.endTransmission();
+//     if (error == 0) {
+//       Serial.print("I2C device found at address 0x");
+//       if (address<16) Serial.print("0");
+//       Serial.print(address, HEX);
+//       Serial.println(" !");
+//       nDevices++;
+//     }
+//   }
+//   if (nDevices == 0) Serial.println("No I2C devices found\n");
+//   else Serial.println("Scan done\n");
+// }
+
+// void loop() {}
+
