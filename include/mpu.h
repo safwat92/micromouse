@@ -1,5 +1,10 @@
 #pragma once
 
 void setupMPUDirect();
-void readRawMPU();
+void updateYaw();
+float getYaw();
+void resetYaw();
 void printMPU();
+
+void turnToRelativeAngle(float deltaAngle);
+void turnToDirection(int target_dir);

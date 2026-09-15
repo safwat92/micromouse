@@ -1,7 +1,9 @@
 #include <queue>
+#include <Arduino.h>
 
-#define MAZE_WIDTH 16
-#define MAZE_HEIGHT 16
+#define MAZE_WIDTH 8
+#define MAZE_HEIGHT 8
+#define MAZE_SIZE 8
 
 const int NORTH = 0;
 const int EAST = 1;
@@ -12,23 +14,27 @@ const int dir_x[4] = {0, 1, 0, -1};
 const int dir_y[4] = {1, 0, -1, 0};
 const char dir_chars[4] = {'n', 'e', 's', 'w'};
 
-int robot_x = 0;
+int robot_x = 7;
 int robot_y = 0;
 int curr_dir = NORTH;
 
 int maze[MAZE_WIDTH][MAZE_HEIGHT];
 bool walls[MAZE_WIDTH][MAZE_HEIGHT][4] = {false};
 
-int get_robot_x() {
+int get_robot_x()
+{
     return robot_x;
 }
-int get_robot_y() {
+int get_robot_y()
+{
     return robot_y;
 }
-void set_robot_x(int x) {
+void set_robot_x(int x)
+{
     robot_x = x;
 }
-void set_robot_y(int y) {
+void set_robot_y(int y)
+{
     robot_y = y;
 }
 int get_robot_dir()
@@ -74,26 +80,150 @@ void initMaze()
     }
 }
 
-// void updateWalls()
-// {
-//     int front_dir = curr_dir;
-//     int right_dir = (curr_dir + 1) % 4;
-//     int left_dir = (curr_dir + 3) % 4;
+bool hasWall(int x, int y, int d)
+{
+    if (isValid(x, y) && d >= 0 && d < 4)
+    {
+        return walls[x][y][d];
+    }
+    return true;
+}
 
-//     if (API::wallFront())
-//     {
-//         // set wall to current cell and the opposite cell
-//         setWall(robot_x, robot_y, front_dir);
-//     }
-//     if (API::wallRight())
-//     {
-//         setWall(robot_x, robot_y, right_dir);
-//     }
-//     if (API::wallLeft())
-//     {
-//         setWall(robot_x, robot_y, left_dir);
-//     }
-// }
+bool updateWalls(bool front, bool right, bool left)
+{
+    bool changed = false;
+    int front_dir = curr_dir;
+    int right_dir = (curr_dir + 1) % 4;
+    int left_dir = (curr_dir + 3) % 4;
+
+    if (front && !walls[robot_x][robot_y][front_dir])
+    {
+        setWall(robot_x, robot_y, front_dir);
+        changed = true;
+    }
+    if (right && !walls[robot_x][robot_y][right_dir])
+    {
+        setWall(robot_x, robot_y, right_dir);
+        changed = true;
+    }
+    if (left && !walls[robot_x][robot_y][left_dir])
+    {
+        setWall(robot_x, robot_y, left_dir);
+        changed = true;
+    }
+    return changed;
+}
+
+void advanceRobotCoordinates()
+{
+    robot_x += dir_x[curr_dir];
+    robot_y += dir_y[curr_dir];
+}
+
+void printMaze(int robotX, int robotY, int robotDir)
+{
+    Serial.println(F("\n================= CURRENT MAZE STATE ================="));
+
+    char dirChar = '^';
+    if (robotDir == NORTH)
+        dirChar = '^';
+    else if (robotDir == EAST)
+        dirChar = '>';
+    else if (robotDir == SOUTH)
+        dirChar = 'v';
+    else if (robotDir == WEST)
+        dirChar = '<';
+
+    for (int y = MAZE_HEIGHT - 1; y >= 0; y--)
+    {
+        // 1. طباعة الجدران الشمالية
+        for (int x = 0; x < MAZE_WIDTH; x++)
+        {
+            Serial.print(F("+"));
+            if (hasWall(x, y, NORTH))
+            {
+                Serial.print(F("---"));
+            }
+            else
+            {
+                Serial.print(F("   "));
+            }
+        }
+        Serial.println(F("+"));
+
+        // 2. طباعة الجدران الغربية والشرقية مع (قيم الخلايا أو موقع الروبوت)
+        for (int x = 0; x < MAZE_WIDTH; x++)
+        {
+            if (hasWall(x, y, WEST))
+            {
+                Serial.print(F("|"));
+            }
+            else
+            {
+                Serial.print(F(" "));
+            }
+
+            // إذا كانت الخلية هي موقع الروبوت الحالي
+            if (x == robotX && y == robotY)
+            {
+                Serial.print(F(" "));
+                Serial.print(dirChar);
+                Serial.print(F(" "));
+            }
+            else
+            {
+                // طباعة قيمة الـ Floodfill المخزنة في maze[x][y]
+                int val = maze[x][y];
+
+                if (val == -1)
+                {
+                    Serial.print(F(" ? ")); // خلية لم يتم الوصول إليها بعد
+                }
+                else if (val < 10)
+                {
+                    Serial.print(F(" "));
+                    Serial.print(val);
+                    Serial.print(F(" ")); // رقم من خانة واحدة (مثال: " 3 ")
+                }
+                else if (val < 100)
+                {
+                    Serial.print(val);
+                    Serial.print(F(" ")); // رقم من خانتين (مثال: "12 ")
+                }
+                else
+                {
+                    Serial.print(val); // رقم من 3 خانات
+                }
+            }
+        }
+
+        // الجدار الشرقي للخلية الأخيرة في الصف
+        if (hasWall(MAZE_WIDTH - 1, y, EAST))
+        {
+            Serial.println(F("|"));
+        }
+        else
+        {
+            Serial.println(F(" "));
+        }
+    }
+
+    // 3. طباعة الجدار السفلي الأخير للمتاهة (SOUTH)
+    for (int x = 0; x < MAZE_WIDTH; x++)
+    {
+        Serial.print(F("+"));
+        if (hasWall(x, 0, SOUTH))
+        {
+            Serial.print(F("---"));
+        }
+        else
+        {
+            Serial.print(F("   "));
+        }
+    }
+    Serial.println(F("+"));
+    Serial.println(F("======================================================\n"));
+}
 
 void flood(bool to_center = true)
 {

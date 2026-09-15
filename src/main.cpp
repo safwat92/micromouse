@@ -1,81 +1,138 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include "motors.h"
 #include "mpu.h"
 #include "tof.h"
 #include "flood.h"
 #include "pid.h"
+#include "mode.h"
+#include "i2c_diag.h"
 
-const int square_ticks = 1000;
-const float WALL_THRESHOLD = 130.0;
+const bool RUN_I2C_DIAGNOSTIC_ONLY = false;
 
-bool new_wall_found = false;
+const int square_ticks = 620;
+const int BASE_SPEED = 70;
+const unsigned long STEP_PAUSE_MS = 2000;
+
 bool arrived_center = false;
+bool exploring_to_center = true;
 
 void setup()
 {
   Serial.begin(115200);
 
+  Serial.println(F("\n\n>>> Starting Micromouse Boot Sequence <<<"));
+
+  Wire.begin(21, 22);
+  Wire.setClock(100000);
+  Wire.setTimeOut(50);
+
+  pinMode(2, OUTPUT);
+
   setupMotors();
   setupEncoders();
 
-  // setup wire
+  setupMPUDirect();
   setupTof();
-  // setupMPUDirect();
+
+  // فحص وتشخيص سريع لناقل الـ I2C للكشف عن أي حساس لا يستجيب
+  scanAndDiagnoseI2C();
+
+  if (RUN_I2C_DIAGNOSTIC_ONLY)
+  {
+    Serial.println(F("\n>>> I2C DIAGNOSTIC MODE ACTIVE <<<"));
+    Serial.println(F("Robot will NOT move. Testing sensors continuously...\n"));
+    return;
+  }
 
   initMaze();
+
+  // Initial floodfill towards center
+  flood(true);
+
+  success_led(true);
+  Serial.println(F("Micromouse Initialized and Ready!"));
 }
 
 void loop()
 {
-  // readRawMPU();
-  // printEncoderValue();
-  // readTof();
-
-  // 1) read sensors here (encoders & tof & imu)
-  // 2) calculating the maze (flood fill)
-  if (new_wall_found) {
-    flood(true);
-    new_wall_found = false;
-  }
-  // don't call each iteration, only when tof find new wall
-  // 3) get the next move (-1 condition)
-  int nextMove = getNextMove();
-  if (nextMove == -1)
-    return;
-  // 4) calculate the motors power (pid -> forward & steer)
-  int left_pwm = 0, right_pwm = 0;
-  pid(0, 0, 0, 0, left_pwm, right_pwm);
-  // 4) output the power to the motors to move
-
-  // ### after passing first cell we check:
-  if (ticks >= square_ticks)
+  if (RUN_I2C_DIAGNOSTIC_ONLY)
   {
-    ticks = 0; // reset the encoder ticks for the next cell
-    // 5) if walls found (tof) update the walls in memory & recalculate maze
-    bool hasLeftWall = (tof_left < WALL_THRESHOLD);
-    bool hasFrontWall = (tof_front < WALL_THRESHOLD);
-    bool hasRightWall = (tof_right < WALL_THRESHOLD);
+    runFullI2CHardwareTest();
+    delay(3000);
+    return;
+  }
+  // 1) Read sensors (ToF then IMU — ToF is slow, so read IMU last for accurate dt)
+  updateTofData();
+  updateYaw();
 
-    if (hasLeftWall || hasFrontWall || hasRightWall)
-    {
-      setWall(get_robot_x(), get_robot_y(), get_robot_dir());
-      new_wall_found = true;
-    };
-    // 6) if arrived to the center -> explore to start
-    if (isCenter(get_robot_x(), get_robot_y())) {
-      arrived_center = true;
-    }
-    // 7) if the last exploration hasn't explored new walls -> fast runnn!
-    // 8) use pre calculated path to move as fast as possible
+  // 2) Detect and record walls in memory
+  bool new_wall = updateWalls(currentTof.hasFrontWall, currentTof.hasRightWall, currentTof.hasLeftWall);
+
+  // 3) Recalculate floodfill if a new wall was discovered
+  if (new_wall)
+  {
+    flood(exploring_to_center);
   }
 
-  // optional:
-  // - smooth diagonal algorithms
-  // - don't stop the motors each cell in fast run (pid)
-  // - freeRTOS
+  // 4) Check if target destination is reached
+  if (exploring_to_center && isCenter(get_robot_x(), get_robot_y()))
+  {
+    Serial.println(F("\n>>> Arrived at Center! <<<"));
+    printCalibrationData();
+    stopMotors();
+    arrived_center = true;
+    exploring_to_center = false;
+    delay(3000);
+    // Recalculate floodfill to return to start (0, 0)
+    flood(false);
+    return;
+  }
+  else if (!exploring_to_center && get_robot_x() == 0 && get_robot_y() == 0)
+  {
+    Serial.println(F("\n>>> Returned to Start! Exploration Complete! <<<"));
+    printCalibrationData();
+    stopMotors();
+    while (true)
+    {
+      delay(1000);
+    }
+  }
 
-  // potintial bugs
-  // - calculate dt using macros
-  // - integral windup in pid (reset after each cell)
-  // - add imu in case lost tof reading
+  // 5) Get next optimal direction from FloodFill
+  int nextDir = getNextMove();
+  if (nextDir == -1)
+  {
+    Serial.println(F("\n[!] Error: No reachable path!"));
+    printCalibrationData();
+    stopMotors();
+    while (true)
+    {
+      delay(1000);
+    }
+  }
+
+  // 6) Print complete calibration & sensor data at this cell
+  printCalibrationData();
+
+  // 7) Pause to observe the robot and review serial monitor data
+  Serial.println(F("Pausing at cell before next move..."));
+  delay(STEP_PAUSE_MS);
+
+  // 8) Rotate robot to face target direction using IMU
+  if (nextDir != get_robot_dir())
+  {
+    turnToDirection(nextDir);
+    delay(200);
+  }
+
+  // 9) Drive forward one cell slowly using PID
+  driveOneCell(BASE_SPEED, square_ticks);
+
+  // 10) Update coordinates of robot in the maze
+  advanceRobotCoordinates();
+
+  // Settle at cell
+  stopMotors();
+  delay(300);
 }
